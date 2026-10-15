@@ -323,6 +323,12 @@ window.hypothesisConfig = function () {
 #details .cb-info:hover::after,#details .cb-info:focus::after,#funnel-channels .cb-info:hover::after,#funnel-channels .cb-info:focus::after{left:auto;right:-10px}
 .cb .cb-head{position:sticky;top:0;z-index:30;background:var(--color-bg);padding-block:var(--cds-pad-sm);margin-block:calc(-1 * var(--cds-pad-sm));box-shadow:0 1px 0 var(--color-border-line)}
 .cb-haxis{text-align:center;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);border-top:1px solid var(--cds-chart-axis);padding-top:4px;margin-top:-2px}
+.cb .cb-kdelta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cb-dpill{display:inline-flex;align-items:center;gap:2px;padding:1px 7px;border-radius:999px;font-weight:600;font-variant-numeric:tabular-nums}
+.cb-dpill.up{color:var(--cb-green);background:color-mix(in srgb,var(--cb-green) 14%,transparent)}
+.cb-dpill.down{color:var(--cb-coral);background:color-mix(in srgb,var(--cb-coral) 14%,transparent)}
+.cb-dpill.flat{color:var(--color-fg-muted);background:var(--cds-chart-grid)}
+.cb .cb-kdelta .cb-dverdict{color:var(--color-fg-muted)}
 @container (max-width:900px){.cb-c8,.cb-c7,.cb-c5,.cb-c4{grid-column:1/-1}}
 </style>
 
@@ -501,7 +507,10 @@ function drawKpi() {
     if (key === 'available_base') v.style.color = 'var(--cb-teal)'; if (key === 'unutilized_base') v.style.color = 'var(--cb-coral)';
     const dl = +r.delta_pct, good = dl * dir > 0;
     const d = el('div', 'cb-kdelta ' + (dl === 0 ? 'cb-muted' : good ? 'cb-good' : 'cb-bad'));
-    d.append(dl > 0 ? '▲ ' : dl < 0 ? '▼ ' : '', cite(el('span', '', (dl > 0 ? '+' : dl < 0 ? '−' : '') + p1.format(Math.abs(dl)) + (isPct ? ' п.п.' : '%')), 'kpi', 'delta_pct', where), ' к пред. периоду');
+    const pill = el('span', 'cb-dpill ' + (dl === 0 ? 'flat' : good ? 'up' : 'down'));
+    pill.append(dl > 0 ? '▲ ' : dl < 0 ? '▼ ' : '', cite(el('span', '', (dl > 0 ? '+' : dl < 0 ? '−' : '') + p1.format(Math.abs(dl)) + (isPct ? ' п.п.' : '%')), 'kpi', 'delta_pct', where));
+    d.append(pill, el('span', 'cb-dverdict', dl === 0 ? 'без изменений' : good ? 'лучше пред. периода' : 'хуже пред. периода'));
+    d.title = dir > 0 ? 'Рост этого показателя — хорошо' : 'Снижение этого показателя — хорошо';
     card.append(v, d);
     if (isPct) { const m = el('div', 'cb-meter'); const i = el('i'); i.style.width = Math.min(100, +r.value) + '%'; i.style.background = C0; m.append(i); card.append(m); }
     if (key !== 'tg_clients') card.title = def;
