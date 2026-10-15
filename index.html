@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Динамика и доступность клиентской базы</title>
+<style>
+:root{
+  --font-anthropic-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-anthropic-serif: Georgia, "Times New Roman", serif;
+  --color-bg:#f7f7f5; --color-panel:#ffffff; --color-fg:#1d1d1b; --color-fg-muted:#6f6e69;
+  --color-border-line:#e4e3de; --color-ok:#2e8b6e; --color-bad:#c4483a;
+  --cds-surface-popover:#ffffff; --cds-border:#dddcd6; --cds-shadow-popover:0 6px 24px rgba(0,0,0,.12);
+  --cds-chart-grid:#eeede8; --cds-chart-axis:#c9c8c2; --cds-chart-muted:#c4c3bb;
+  --cds-font-size-caption:12px; --cds-font-size-body:14px; --cds-font-size-heading:16px; --cds-font-size-title:22px;
+  --cds-font-weight-medium:500;
+  --cds-gap-xs:4px; --cds-gap-sm:8px; --cds-gap-md:16px; --cds-gap-lg:24px;
+  --cds-pad-xs:4px; --cds-pad-sm:8px; --cds-pad-md:16px; --cds-pad-lg:20px;
+  --cds-radius:8px; --cds-dur-slow:.3s; --cds-ease-out:cubic-bezier(.2,.8,.2,1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --color-bg:#121211; --color-panel:#1c1c1b; --color-fg:#ecebe6; --color-fg-muted:#9b9a94;
+  --color-border-line:#2f2f2d; --color-ok:#5cc49a; --color-bad:#f2877a;
+  --cds-surface-popover:#252524; --cds-border:#3a3a38; --cds-shadow-popover:0 6px 24px rgba(0,0,0,.5);
+  --cds-chart-grid:#2a2a28; --cds-chart-axis:#4a4a47; --cds-chart-muted:#55554f; color-scheme: dark}}
+:root[data-theme="dark"]{
+  --color-bg:#121211; --color-panel:#1c1c1b; --color-fg:#ecebe6; --color-fg-muted:#9b9a94;
+  --color-border-line:#2f2f2d; --color-ok:#5cc49a; --color-bad:#f2877a;
+  --cds-surface-popover:#252524; --cds-border:#3a3a38; --cds-shadow-popover:0 6px 24px rgba(0,0,0,.5);
+  --cds-chart-grid:#2a2a28; --cds-chart-axis:#4a4a47; --cds-chart-muted:#55554f; color-scheme: dark}
+html,body{margin:0}
+body{background:var(--color-bg);color:var(--color-fg);font-family:var(--font-anthropic-sans)}
+#dash-root{max-width:1400px;margin:0 auto;padding:24px 16px 48px}
+.dash-skeleton{min-height:1em;border-radius:6px;background:var(--cds-chart-grid)}
+[hidden]{display:none!important}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+// Minimal stand-in for the dashboard runtime: loads data/*.json and redraws on data, params or width change.
+(function(){
+  const IDS=['periods','kpi','funnel','capacity','intensity','msg_distribution','dynamics','channels','refs','bucket_channels'];
+  const store={}, subs=[]; let params={period:'4w',channel:'all'};
+  IDS.forEach((id)=>{store[id]={status:'loading',data:[],columns:[],meta:[]};});
+  const run=()=>subs.forEach((f)=>{try{f();}catch(e){console.error(e);}});
+  window.dash={
+    data:(id)=>store[id]||{status:'missing',data:[],columns:[],meta:[]},
+    onData:(fn)=>{subs.push(fn);try{fn();}catch(e){console.error(e);}},
+    params:()=>({...params}),
+    setParams:(p)=>{params={...params,...p};run();},
+    resetParams:()=>{params={period:'4w',channel:'all'};run();},
+    colors:['#1f7a74','#4fa8f0','#9a6bf0','#e0a11b','#4a3fd9','#e08a2e','#ec6a5a','#5b6478'],
+    calc:()=>{}, loader:()=>{}, refresh:()=>{}, setLink:()=>{},
+  };
+  IDS.forEach((id)=>fetch('data/'+id+'.json').then((r)=>{if(!r.ok)throw new Error(r.status);return r.json();})
+    .then((d)=>{store[id]={status:'ok',data:d,columns:d.length?Object.keys(d[0]):[],meta:[]};run();})
+    .catch((e)=>{store[id]={status:'error',data:[],columns:[],meta:[],message:String(e)};run();}));
+  let w=0; window.addEventListener('resize',()=>{if(innerWidth!==w){w=innerWidth;run();}});
+})();
+</script>
+</head>
+<body>
+<div id="dash-root">
+<style>
+.cb{--cb-teal:#1f7a74;--cb-blue:#4fa8f0;--cb-purple:#9a6bf0;--cb-amber:#e0a11b;--cb-indigo:#4a3fd9;--cb-orange:#e08a2e;--cb-coral:#ec6a5a;--cb-slate:#5b6478;--cb-green:#2e8b6e;--cb-teal-soft:color-mix(in srgb,var(--cb-teal) 12%,transparent);--cb-amber-soft:color-mix(in srgb,var(--cb-amber) 14%,transparent)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .cb{--cb-teal:#4db6ac;--cb-blue:#6bb8f5;--cb-purple:#b08cf7;--cb-amber:#edb443;--cb-indigo:#8a80f0;--cb-orange:#f0a25a;--cb-coral:#f2877a;--cb-slate:#9aa3b5;--cb-green:#5cc49a}}
+[data-theme=dark] .cb{--cb-teal:#4db6ac;--cb-blue:#6bb8f5;--cb-purple:#b08cf7;--cb-amber:#edb443;--cb-indigo:#8a80f0;--cb-orange:#f0a25a;--cb-coral:#f2877a;--cb-slate:#9aa3b5;--cb-green:#5cc49a}
+.cb{container-type:inline-size;font-family:var(--font-anthropic-sans);font-size:var(--cds-font-size-body);color:var(--color-fg);display:flex;flex-direction:column;gap:var(--cds-gap-md);font-variant-numeric:tabular-nums}
+.cb h1{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);margin:0;text-wrap:balance}
+.cb h2{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0}
+.cb h3{font-size:var(--cds-font-size-body);font-weight:var(--cds-font-weight-medium);margin:0}
+.cb p{margin:0}
+.cb-muted,.cb-note{color:var(--color-fg-muted)}
+.cb-note{font-size:var(--cds-font-size-caption);max-width:70ch}
+.cb-head{display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.cb-take{max-width:75ch}
+.cb .cb-take b{font-weight:var(--cds-font-weight-medium)}
+.cb-demo{align-self:flex-start;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);border:1px dashed var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-xs) var(--cds-pad-sm)}
+.cb-filters{display:flex;flex-wrap:wrap;gap:var(--cds-gap-md);align-items:center}
+.cb-fgroup{display:flex;flex-wrap:wrap;gap:var(--cds-gap-xs);align-items:center}
+.cb-flabel{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-right:var(--cds-gap-xs)}
+.cb-seg{display:inline-flex;border:1px solid var(--color-border-line);border-radius:var(--cds-radius);overflow:hidden}
+.cb-seg button{font:inherit;font-size:var(--cds-font-size-caption);color:var(--color-fg);background:var(--color-panel);border:0;border-right:1px solid var(--color-border-line);padding:var(--cds-pad-xs) var(--cds-pad-sm);cursor:pointer}
+.cb-seg button:last-child{border-right:0}
+.cb-seg button[aria-pressed=true]{background:var(--color-fg);color:var(--color-bg)}
+.cb button:focus-visible,.cb [tabindex]:focus-visible{outline:2px solid var(--color-fg);outline-offset:2px}
+.cb-sec{display:flex;flex-direction:column;gap:var(--cds-gap-md)}
+.cb-sechead{display:flex;flex-direction:column;gap:var(--cds-gap-xs)}
+.cb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,20rem),1fr));gap:var(--cds-gap-md)}
+.cb-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,11.5rem),1fr));gap:var(--cds-gap-md)}
+.cb-card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg);display:flex;flex-direction:column;gap:var(--cds-gap-sm);min-width:0;position:relative}
+.cb-wide{grid-column:1/-1}
+.cb-klabel{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cb-kval{font-family:var(--font-anthropic-serif);font-weight:400;font-size:calc(var(--cds-font-size-title)*1.25);line-height:1.1}
+.cb-kdelta{font-size:var(--cds-font-size-caption)}
+.cb-good{color:var(--color-ok)}.cb-bad{color:var(--color-bad)}
+.cb-kdef{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cb-meter{height:6px;border-radius:3px;background:var(--cds-chart-grid);overflow:hidden}
+.cb-meter i{display:block;height:100%;border-radius:3px}
+.cb-pop{position:absolute;left:var(--cds-pad-sm);right:var(--cds-pad-sm);top:calc(100% - var(--cds-pad-sm));z-index:5;background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-sm);font-size:var(--cds-font-size-caption);display:none;flex-direction:column;gap:var(--cds-gap-xs)}
+.cb-haspop{cursor:help}
+.cb-haspop:hover .cb-pop,.cb-haspop:focus-within .cb-pop,.cb-haspop:focus .cb-pop{display:flex}
+.cb-kv{display:flex;justify-content:space-between;gap:var(--cds-gap-md)}
+.cb-hint{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);text-decoration:underline dotted}
+/* capacity */
+.cb-cap{display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.cb-caprow{display:grid;grid-template-columns:3.2rem minmax(0,11rem) minmax(0,1fr) 3.6rem 5rem;gap:var(--cds-gap-sm);align-items:center;font-size:var(--cds-font-size-caption)}
+.cb-dots{display:flex;gap:4px}
+.cb-dots i{width:.7rem;height:.7rem;border-radius:50%;border:1.5px solid var(--cds-chart-axis);box-sizing:border-box}
+.cb-dots i.on{border-color:transparent}
+.cb-track{height:14px;border-radius:4px;background:var(--cds-chart-grid);position:relative}
+.cb-track i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+.cb-r{text-align:right}
+.cb-legend{display:flex;flex-wrap:wrap;gap:var(--cds-gap-md);font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cb-legend span{display:inline-flex;align-items:center;gap:.35rem}
+.cb-sw{width:.7rem;height:.7rem;border-radius:2px;display:inline-block;flex:none}
+/* funnel */
+.cb-funnel{display:flex;flex-direction:column;gap:2px}
+.cb-frow,.cb-fhead{display:grid;grid-template-columns:minmax(0,12.5rem) minmax(4rem,1fr) 5.2rem 4.6rem 4.6rem 5.4rem;gap:var(--cds-gap-sm);align-items:center}
+.cb-fhead{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);padding:0 var(--cds-pad-sm)}
+.cb-frow{font:inherit;color:inherit;text-align:left;background:none;border:1px solid transparent;border-radius:var(--cds-radius);padding:var(--cds-pad-sm);cursor:pointer}
+.cb-frow:hover{background:var(--cds-chart-grid)}
+.cb-frow[aria-pressed=true]{border-color:var(--color-fg)}
+.cb-fname{display:flex;gap:.5rem;align-items:baseline;min-width:0}
+.cb-fnum{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption)}
+.cb-fbar{display:flex;flex-direction:column;gap:3px}
+.cb-fbar i{display:block;height:20px;border-radius:4px;min-width:2px}
+.cb-fbar i.prev{height:4px;border-radius:2px;background:var(--cds-chart-muted)}
+.cb-fstat{text-align:right}
+.cb-fstat small{display:none;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption)}
+.cb-crit{color:var(--color-bad)}
+.cb-detail{border-top:1px solid var(--color-border-line);padding-top:var(--cds-pad-md);display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.cb-cond{margin:0;padding:var(--cds-pad-sm);background:var(--cds-chart-grid);border-radius:var(--cds-radius);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--cds-font-size-caption);white-space:pre-wrap;overflow-wrap:anywhere}
+.cb-scroll{overflow-x:auto}
+.cb table{border-collapse:collapse;width:100%;font-size:var(--cds-font-size-caption)}
+.cb th,.cb td{padding:var(--cds-pad-xs) var(--cds-pad-sm);border-bottom:1px solid var(--color-border-line);text-align:right;white-space:nowrap}
+.cb th{font-weight:var(--cds-font-weight-medium);color:var(--color-fg-muted);vertical-align:bottom;white-space:normal}
+.cb th:first-child,.cb td:first-child{text-align:left}
+.cb tr.cb-total td{font-weight:var(--cds-font-weight-medium);border-bottom:0}
+.cb td .cb-pct{color:var(--color-fg-muted)}
+.cb-mcell{position:relative;min-width:4.5rem}
+.cb-mcell i{position:absolute;left:0;top:3px;bottom:3px;border-radius:3px;opacity:.22}
+.cb-mcell span{position:relative}
+.cb th button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline dotted}
+/* histogram */
+.cb-hist{display:flex;align-items:flex-end;gap:var(--cds-gap-sm);height:220px;padding-top:1.4rem;box-sizing:border-box}
+.cb-hcol{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:4px;font-size:var(--cds-font-size-caption)}
+.cb-hcol i{display:block;width:100%;max-width:64px;border-radius:4px 4px 0 0;min-height:1px}
+.cb-hcol em{font-style:normal;color:var(--color-fg-muted)}
+.cb-bullets{display:flex;flex-direction:column;gap:var(--cds-gap-md)}
+.cb-bullet{display:flex;flex-direction:column;gap:4px;font-size:var(--cds-font-size-caption)}
+.cb-btrack{height:18px;border-radius:4px;background:var(--cds-chart-grid);position:relative}
+.cb-btrack i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;min-width:2px}
+.cb-btrack u{position:absolute;top:-6px;bottom:-6px;width:14px;margin-left:-7px;cursor:help;z-index:2;outline-offset:0}
+.cb-btrack u::before{content:"";position:absolute;left:6px;top:3px;bottom:3px;width:2px;background:var(--color-fg)}
+.cb-btrack u:hover::after,.cb-btrack u:focus::after{content:attr(data-tip);position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);width:max-content;max-width:17rem;white-space:normal;text-decoration:none;color:var(--color-fg);background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-xs) var(--cds-pad-sm);font-size:var(--cds-font-size-caption);line-height:1.4;z-index:8}
+.cb-btrack u{text-decoration:none}
+.cb-btrack u:hover,.cb-btrack u:focus{z-index:30}
+.cb-bullet:hover,.cb-bullet:focus-within{position:relative;z-index:30}
+.cb-tickv{position:absolute;top:calc(100% + 1px);left:50%;transform:translateX(-50%);font-size:var(--cds-font-size-caption);line-height:1.2;color:var(--color-fg);white-space:nowrap}
+.cb .cb-bullet{padding-bottom:1.05rem}
+.cb-btrack u.r:hover::after,.cb-btrack u.r:focus::after{left:auto;right:0;transform:none}
+.cb-btrack u.l:hover::after,.cb-btrack u.l:focus::after{left:0;transform:none}
+/* dynamics */
+.cb-chips{display:flex;flex-wrap:wrap;gap:var(--cds-gap-xs)}
+.cb-chip{font:inherit;font-size:var(--cds-font-size-caption);color:var(--color-fg);background:none;border:1px solid var(--color-border-line);border-radius:999px;padding:2px .6rem;display:inline-flex;gap:.4rem;align-items:center;cursor:pointer}
+.cb-chip[aria-pressed=false]{color:var(--color-fg-muted)}
+.cb-chip[aria-pressed=false] .cb-sw{background:transparent!important;outline:1.5px solid var(--cds-chart-axis);outline-offset:-1.5px}
+.cb-dyn{position:relative;min-height:320px}
+.cb-dyn text{fill:var(--color-fg-muted);font-size:var(--cds-font-size-caption)}
+.cb-tip{position:absolute;top:8px;background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-xs) var(--cds-pad-sm);font-size:var(--cds-font-size-caption);pointer-events:none;display:flex;flex-direction:column;gap:2px;max-width:min(22rem,90%)}
+.cb-tip .cb-kv span:first-child{display:inline-flex;gap:.35rem;align-items:center}
+.cb-err{display:flex;align-items:center;justify-content:center;gap:.4rem;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);min-height:4rem}
+.cb-err::before{content:"";width:.375rem;height:.375rem;border-radius:50%;background:var(--color-bad)}
+.cb [data-dash-source-state=refreshing]{opacity:.5}
+@container (max-width:640px){
+ .cb-fhead{display:none}
+ .cb-frow{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .cb-fname,.cb-fbar{grid-column:1/-1}
+ .cb-fstat{text-align:left}
+ .cb-fstat small{display:block}
+ .cb-caprow{grid-template-columns:3.2rem minmax(0,1fr) 3.6rem 4.6rem}
+ .cb-caprow .cb-track{grid-column:1/-1;grid-row:2;height:8px}
+}
+
+/* compact two-screen layout */
+.cb [hidden]{display:none!important}
+.cb-top{display:flex;flex-wrap:wrap;gap:var(--cds-gap-sm) var(--cds-gap-lg);align-items:center;justify-content:space-between}
+.cb-ttl{display:flex;flex-wrap:wrap;gap:var(--cds-gap-sm);align-items:baseline}
+.cb .cb-demo{align-self:auto;padding:1px var(--cds-pad-sm)}
+.cb-take{max-width:none;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cb .cb-take b{color:var(--color-fg)}
+.cb-row{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:var(--cds-gap-md)}
+.cb-c8{grid-column:span 8}.cb-c7{grid-column:span 7}.cb-c5{grid-column:span 5}.cb-c4{grid-column:span 4}
+.cb .cb-card{padding:var(--cds-pad-md);gap:var(--cds-gap-xs)}
+.cb-kpis{grid-template-columns:repeat(auto-fit,minmax(min(100%,9.5rem),1fr))}
+.cb .cb-kval{font-size:calc(var(--cds-font-size-title)*1.05)}
+.cb-chead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:var(--cds-gap-xs) var(--cds-gap-md)}
+.cb-cap{gap:5px}
+.cb-caprow{grid-template-columns:3rem minmax(0,9.5rem) minmax(0,1fr) 3.4rem 4.6rem}
+.cb-track{height:11px}
+.cb-fhead,.cb-frow{grid-template-columns:minmax(8rem,11rem) minmax(3rem,1fr) 5rem 4.2rem 4.2rem 4.8rem 5.2rem}
+.cb-fname{flex-wrap:wrap;row-gap:3px}
+.cb-fname > span:nth-child(2){line-height:1.25;flex:1 1 7rem;min-width:0}
+.cb-cohrow{display:flex;flex-wrap:wrap;gap:var(--cds-gap-sm);align-items:center}
+.cb .cb-cohnote{max-width:none}
+.cb .cb-cohnote b{font-weight:var(--cds-font-weight-medium)}
+.cb .cb-frow{padding:3px var(--cds-pad-sm)}
+.cb-fbar{gap:2px}.cb-fbar i{height:8px;border-radius:3px}.cb .cb-fbar i.prev{height:8px;border-radius:3px;background:var(--color-fg-muted);opacity:.45}
+.cb-lgsw{display:inline-block;width:1.1em;height:8px;border-radius:3px;vertical-align:.08em;margin-right:.35em}
+.cb .cb-detail{position:absolute;left:var(--cds-pad-md);right:var(--cds-pad-md);bottom:var(--cds-pad-md);z-index:6;background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-sm)}
+.cb-cond{max-height:7.5rem;overflow:auto}
+.cb .cb-hist{height:112px;padding-top:0}
+.cb-bullets{gap:var(--cds-gap-sm)}
+.cb-btrack{height:10px}
+.cb .cb-dyn{min-height:230px}
+.cb th[title]{text-decoration:underline dotted;cursor:help}
+.cb td .cb-pct{display:block}
+.cb td.cb-step{white-space:normal}
+.cb-foot{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cb-captable td:first-child{text-align:left;white-space:normal}
+.cb-captable th{text-align:right}
+.cb th.cb-tipth{position:relative;text-decoration:underline dotted;cursor:help}
+.cb th.cb-tipth:hover::after,.cb th.cb-tipth:focus::after{content:attr(data-tip);position:absolute;top:100%;right:0;z-index:7;width:max-content;max-width:16rem;white-space:normal;text-align:left;font-weight:400;color:var(--color-fg);background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-xs) var(--cds-pad-sm);font-size:var(--cds-font-size-caption)}
+.cb-captable tr.cb-grp th{text-align:center;border-bottom:0;color:var(--color-fg)}
+.cb-captable tr.cb-grp th:first-child{text-align:left}
+.cb-captable td.cb-sep,.cb-captable th.cb-sep{border-left:1px solid var(--color-border-line)}
+.cb{position:relative}
+.cb-drawer{position:absolute;right:0;width:min(32rem,100%);height:40rem;min-height:18rem;z-index:20;transition:top .12s linear,height .12s linear;background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover),-8px 0 24px rgba(0,0,0,.08);overflow:hidden}
+@media (prefers-reduced-motion:no-preference){.cb-drawer:not([hidden]){animation:cb-slide var(--cds-dur-slow) var(--cds-ease-out)}}
+@keyframes cb-slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.cb-sgin{position:absolute;inset:0;overflow:auto;padding:var(--cds-pad-md);display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.sg-top{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--cds-gap-sm)}
+.sg-x{font:inherit;font-size:1.1rem;line-height:1;background:none;border:0;color:var(--color-fg-muted);cursor:pointer;padding:2px 6px;border-radius:var(--cds-radius)}
+.sg-x:hover{background:var(--cds-chart-grid);color:var(--color-fg)}
+.sg-info{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);background:var(--cds-chart-grid);border-radius:var(--cds-radius);padding:var(--cds-pad-xs) var(--cds-pad-sm)}
+.sg-title{display:flex;align-items:center;gap:var(--cds-gap-sm);flex-wrap:wrap}
+.sg-pill{display:inline-flex;align-items:center;gap:4px;font-size:var(--cds-font-size-caption);background:var(--sg-pill);border-radius:999px;padding:1px 8px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.sg-pill svg{width:13px;height:13px;fill:currentColor}
+.sg-pill.out{background:var(--color-panel);border:1px solid var(--sg-line)}
+.sg-flow{--sg-line:var(--sg-accent);--sg-pill:color-mix(in srgb,var(--sg-accent) 16%,var(--color-panel));--rail:5.6rem;display:flex;flex-direction:column;font-size:var(--cds-font-size-caption);padding-bottom:var(--cds-pad-sm)}
+.sg-root{display:flex;flex-wrap:wrap;gap:var(--cds-gap-sm);align-items:center}
+.sg-box{border:1px solid var(--color-border-line);border-radius:var(--cds-radius);background:var(--color-panel);padding:6px 10px}
+.sg-radios{display:flex;gap:var(--cds-gap-md);align-items:center}
+.sg-radio{display:inline-flex;gap:6px;align-items:center}
+.sg-radio i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--color-fg-muted);box-sizing:border-box;display:inline-block}
+.sg-radio.on i{border:4px solid var(--sg-accent)}
+.sg-check{display:inline-flex;gap:6px;align-items:center;color:var(--color-fg)}
+.sg-check i{width:14px;height:14px;border:1.5px solid var(--color-fg-muted);border-radius:3px;box-sizing:border-box;display:inline-block}
+.sg-rootcount{margin-top:-1px}
+.sg-step{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);position:relative}
+.sg-rail{position:relative;border-left:1.5px solid var(--sg-line);margin-left:1.2rem}
+.sg-rail .sg-pill{position:absolute;left:-1.2rem;bottom:-.65rem;z-index:1}
+.sg-cond{position:relative;padding:.6rem 0 1.1rem;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.sg-and{align-self:flex-start;margin-left:2.2rem;border:1px solid var(--color-border-line);border-radius:999px;padding:0 12px;background:var(--color-panel)}
+.sg-and-wrap{display:flex;flex-direction:column;align-items:flex-start;border-left:1px solid var(--color-border-line);margin-left:3.6rem;padding-block:4px}
+.sg-cond .sg-box{position:relative;color:var(--color-fg)}
+.sg-cond .sg-box::before{content:"";position:absolute;right:100%;top:50%;width:calc(var(--rail) - 1.2rem);border-top:1.5px solid var(--sg-line)}
+.sg-cond .sg-box::after{content:"";position:absolute;right:calc(100% + var(--rail) - 1.2rem - 6px);top:calc(50% - 4px);border:4px solid transparent;border-right-color:var(--sg-line);border-left:0}
+.sg-cond.sel .sg-box{border-color:var(--sg-accent);box-shadow:0 0 0 1px var(--sg-accent)}
+.sg-ex{color:var(--color-fg-muted)}
+.sg-foot{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--color-border-line);padding-top:var(--cds-pad-sm)}
+.sg-open{align-self:flex-start;font:inherit;font-size:var(--cds-font-size-caption);border:1px solid var(--color-border-line);background:var(--color-panel);color:var(--color-fg-muted);border-radius:var(--cds-radius);padding:4px 10px;cursor:not-allowed}
+.cb-hcol{cursor:pointer;border-radius:var(--cds-radius);outline-offset:2px;border:1.5px solid transparent;padding:3px 3px 2px;box-sizing:border-box}
+.cb-hcol:hover{border-color:var(--color-border-line)}
+.cb-hcol[aria-pressed=true]{border-color:var(--color-fg)}
+.cb-hcol[aria-pressed=true] em{color:var(--color-fg);font-weight:var(--cds-font-weight-medium)}
+.cb-hdet{display:flex;flex-direction:column;gap:var(--cds-gap-xs);border-top:1px solid var(--color-border-line);padding-top:var(--cds-pad-sm)}
+.cb-hdet:empty{display:none}
+.cb-hdtab .cb-mcell{min-width:7rem;text-align:right}
+.cb .cb-card{border-radius:12px}
+.cb .cb-kval{font-family:var(--font-anthropic-sans);font-weight:600;letter-spacing:-.01em}
+.cb .cb-good{color:var(--cb-green)}.cb .cb-bad,.cb .cb-crit{color:var(--cb-coral)}
+.cb .cb-seg button[aria-pressed=true]{background:var(--cb-teal);color:#fff}
+.cb .cb-chip{border-radius:8px;border:1.5px solid var(--cb-teal);padding:3px .65rem;gap:.45rem}
+.cb .cb-chip .cb-sw{width:.7rem;height:.7rem;border-radius:50%}
+.cb .cb-chip[aria-pressed=false]{border-color:var(--color-border-line);color:var(--color-fg-muted)}
+.cb .cb-chip[aria-pressed=false] .cb-sw{background:var(--cds-chart-axis)!important;outline:0}
+.cb-mktext{fill:#fff!important;font-size:10px!important;font-weight:600}
+.cb .cb-demo{display:inline-flex;align-items:center;gap:.4rem;border:0;border-radius:8px;background:var(--cb-amber-soft);color:var(--color-fg);padding:2px 10px 2px 4px}
+.cb .cb-demo::before{content:"i";display:inline-grid;place-items:center;width:1.15rem;height:1.15rem;border-radius:5px;background:var(--cb-amber);color:#fff;font-weight:700;font-size:.75rem}
+.cb .sg-pill{background:var(--cb-teal-soft)}
+.cb-c12{grid-column:1/-1}
+.cb-capbar{display:flex;height:16px;border-radius:6px;overflow:hidden;gap:2px;background:var(--cds-chart-grid)}
+.cb-capbar i{display:block;min-width:2px}
+.cb-caplg{display:grid;grid-template-columns:repeat(auto-fill,minmax(10.5rem,1fr));gap:var(--cds-gap-sm) var(--cds-gap-md)}
+.cb-capit{display:flex;flex-direction:column;gap:1px;font-size:var(--cds-font-size-caption)}
+.cb-capnm{display:flex;align-items:center;gap:.4rem;color:var(--color-fg-muted)}
+.cb-capnm .cb-sw{width:.65rem;height:.65rem;border-radius:50%}
+.cb-capit.crit .cb-capnm{color:var(--cb-coral)}
+.cb-capv{padding-left:1.05rem;font-size:var(--cds-font-size-body)}
+.cb .cb-capv b{font-weight:600}
+.cb-fclg{display:inline-flex;gap:var(--cds-gap-sm);flex-wrap:wrap}
+.cb-fclgb{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;display:inline-flex;align-items:center;gap:.35rem}
+.cb-fclgb .cb-sw{width:.65rem;height:.65rem;border-radius:50%}
+.cb-fch{display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.cb-fcrow{display:grid;grid-template-columns:minmax(0,10rem) minmax(0,1fr);gap:var(--cds-gap-sm);align-items:center}
+.cb-fcname{font-size:var(--cds-font-size-caption);line-height:1.25}
+.cb-fcbars{display:flex;flex-direction:column;gap:3px}
+.cb-fcb{display:flex;align-items:center;gap:6px;font-size:var(--cds-font-size-caption);font-variant-numeric:tabular-nums;line-height:1}
+.cb-fcb i{display:block;height:7px;border-radius:3px}
+.cb-caph th{white-space:normal;vertical-align:bottom;min-width:5.5rem}
+.cb-caph th:first-child,.cb-caph td:first-child{min-width:5rem}
+.cb-caph .cb-mcell i{opacity:.28;left:3px;right:auto}
+.cb-caph th + th,.cb-caph td + td,#cb-matrix th + th,#cb-matrix td + td,#cb-table th + th,#cb-table td + td{border-left:1px solid var(--color-border-line)}
+#cb-matrix .cb-mcell i{left:3px}
+.cb-caph .cb-sep{border-left:1px solid var(--color-border-line)}
+.cb .cb-caph b{font-weight:600}
+.cb .cb-frow.key{background:var(--cb-teal-soft)}
+.cb .cb-frow.key .cb-fname > span:nth-child(2){font-weight:var(--cds-font-weight-medium)}
+.cb-ftag{font-size:.72rem;line-height:1;padding:3px 7px;border-radius:999px;color:var(--cb-teal);border:1px solid color-mix(in srgb,var(--cb-teal) 45%,transparent);white-space:nowrap;align-self:center}
+.cb-ttlrow{display:flex;align-items:center;gap:.4rem}
+.cb-info{position:relative;display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;border:1px solid var(--color-fg-muted);color:var(--color-fg-muted);font-size:10px;font-weight:600;font-style:normal;line-height:1;cursor:help;flex:none}
+.cb-info:hover,.cb-info:focus{border-color:var(--cb-teal);color:var(--cb-teal)}
+.cb-info:hover::after,.cb-info:focus::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:-10px;z-index:60;width:max-content;max-width:min(22rem,80vw);white-space:pre-line;text-align:left;font-weight:400;font-size:var(--cds-font-size-caption);line-height:1.45;color:var(--color-fg);background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-sm)}
+#details .cb-info:hover::after,#details .cb-info:focus::after,#funnel-channels .cb-info:hover::after,#funnel-channels .cb-info:focus::after{left:auto;right:-10px}
+@container (max-width:900px){.cb-c8,.cb-c7,.cb-c5,.cb-c4{grid-column:1/-1}}
+</style>
+
+
+<div class="cb">
+ <header class="cb-head">
+  <div class="cb-top">
+   <div class="cb-ttl"><h1>Динамика и доступность клиентской базы</h1><span class="cb-demo">демо-данные</span></div>
+   <div class="cb-filters">
+    <div class="cb-fgroup"><span class="cb-flabel">Период</span><div class="cb-seg" id="cb-period" role="group" aria-label="Период"></div></div>
+    <div class="cb-fgroup"><span class="cb-flabel">Канал</span><div class="cb-seg" id="cb-channel" role="group" aria-label="Канал"></div></div>
+   </div>
+  </div>
+  <p class="cb-take"><span id="cb-take">—</span> <span id="cb-range"></span></p>
+ </header>
+
+ <div class="cb-kpis" id="cb-kpis"></div>
+
+ <div class="cb-card" id="capacity">
+  <div class="cb-chead"><h3>Ёмкость по каналам</h3></div>
+  <div class="cb-scroll"><table class="cb-caph" id="cb-cap"></table></div>
+ </div>
+
+ <div class="cb-row">
+  <div class="cb-card cb-c7" id="funnel">
+   <div class="cb-chead"><h3>Воронка доступности</h3><span class="cb-note cb-flegend"><span><i class="cb-lgsw cb-lg-cur"></i>— выбранный период</span> &nbsp; <span><i class="cb-lgsw" style="background:var(--color-fg-muted);opacity:.45"></i>— предыдущий период</span></span></div>
+   <div class="cb-cohrow"><div class="cb-seg" id="cb-cohort" role="group" aria-label="Клиенты"></div></div>
+   <p class="cb-note cb-cohnote" id="cb-cohnote"></p>
+   <div class="cb-fhead"><span>Шаг</span><span></span><span class="cb-r">Клиентов</span><span class="cb-r">К пред. шагу</span><span class="cb-r">К первому</span><span class="cb-r">Потеря</span><span class="cb-r">К пред. периоду</span></div>
+   <div class="cb-funnel" id="cb-funnel"></div>
+  </div>
+  <div class="cb-card cb-c5" id="funnel-channels">
+   <div class="cb-chead"><h3>Воронка по каналам</h3><span class="cb-note">Доля от всей базы</span></div>
+   <div class="cb-scroll"><table id="cb-matrix"></table></div>
+  </div>
+ </div>
+
+ <div class="cb-row">
+  <div class="cb-card cb-c12" id="dynamics">
+   <div class="cb-chead"><h3>Динамика по неделям</h3><span class="cb-note"><i style="display:inline-block;width:.9em;height:.9em;border-radius:2px;background:var(--cds-chart-grid);border:1px solid var(--color-border-line);vertical-align:-.12em;margin-right:.35em" aria-hidden="true"></i>— выбранный период</span></div>
+   <div class="cb-chips" id="cb-chips" role="group" aria-label="Области графика"></div>
+   <div class="cb-dyn" id="cb-dyn" data-source="dynamics"></div>
+  </div>
+ </div>
+
+ <div class="cb-row">
+  <div class="cb-card cb-c5" id="structure">
+   <h3 id="cb-hist-note">Распределение коммуникаций на клиента</h3>
+   <div class="cb-hist" id="cb-hist"></div>
+   <div class="cb-hdet" id="cb-hdet"></div>
+   <div class="cb-bullets" id="cb-bullets"></div>
+   <div class="cb-chead"><span class="cb-note"><i style="display:inline-block;width:2px;height:.95em;background:var(--color-fg);vertical-align:-.12em;margin-right:.35em" aria-label="Засечка"></i>— среднее количество коммуникаций у клиентов, получивших минимум одну</span></div>
+  </div>
+  <div class="cb-card cb-c7" id="details">
+   <div class="cb-chead"><h3>Детализированные данные</h3><span class="cb-note">Единицы и %; база процента — в подсказке к колонке</span></div>
+   <div class="cb-scroll"><table id="cb-table"></table></div>
+  </div>
+ </div>
+
+ <p class="cb-foot" id="cb-built">—</p>
+ <aside class="cb-drawer" id="segmenter" hidden role="dialog" aria-label="Сегментатор"><div class="cb-sgin" id="cb-sg"></div></aside>
+</div>
+
+
+<script>
+const $ = (s) => document.querySelector(s);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+const cite = (e, src, field, where) => {
+  e.dataset.source = src; if (field) e.dataset.field = field;
+  if (where) e.dataset.where = Object.entries(where).map(([k, v]) => k + '=' + String(v).replace(/[%&=]/g, encodeURIComponent)).join('&');
+  return e;
+};
+const nf = new Intl.NumberFormat('ru-RU');
+const cf = new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 2 });
+const p1 = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const d2 = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (v) => p1.format(+v) + '%';
+const big = (v) => (+v >= 10000 ? cf.format(+v) : nf.format(+v));
+const dfm = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const dfy = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+const day = (s) => new Date(String(s).slice(0, 10) + 'T00:00:00Z');
+const PAL = ['var(--cb-teal)', 'var(--cb-blue)', 'var(--cb-purple)', 'var(--cb-amber)', 'var(--cb-indigo)', 'var(--cb-orange)', 'var(--cb-coral)', 'var(--cb-slate)'];
+const C0 = PAL[0], MUTED = 'var(--cds-chart-muted)', CRIT = 'var(--cb-coral)';
+
+const PERIODS = [['4w', '4 недели'], ['12w', '12 недель'], ['26w', '26 недель']];
+const CHANNELS = [['all', 'Все каналы'], ['sms', 'SMS'], ['email', 'Email'], ['push', 'Push']];
+const CHNAME = { all: 'Все каналы', total: 'Все каналы', sms: 'SMS', email: 'Email', push: 'Push' };
+const STEPS = {
+  total: ['Всего клиентов', 'client.status = "active" на конец периода'],
+  valid: ['Есть корректный контакт', 'contact[{ch}].is_valid = true'],
+  consent: ['Есть согласие на коммуникации', 'consent[{ch}].marketing = true   // те же каналы, что на шаге 2'],
+  tg: ['Включены в целевые группы кампаний', 'campaign.status = "launched" AND client IN campaign.target_group   // за период'],
+  policy: ['Прошли контактную политику', 'contact_policy.check[{ch}] = "passed"'],
+  sent: ['Отправлено сообщение', 'message[{ch}].sent_count >= 1'],
+  delivered: ['Доставлено сообщение', 'message[{ch}].delivered_count >= 1'],
+};
+const STEPCH = {
+  all: { sent: 'Отправлена коммуникация', delivered: 'Доставлена коммуникация' },
+  sms: { sent: 'Отправлено SMS', delivered: 'Доставлено SMS' },
+  email: { sent: 'Отправлен email', delivered: 'Доставлен email' },
+  push: { sent: 'Отправлен push', delivered: 'Доставлен push' },
+};
+const stepName = (key, ch) => (STEPCH[ch] && STEPCH[ch][key]) || STEPS[key][0];
+const SERIES = [
+  ['total', 'Всего клиентов', 'var(--color-fg-muted)'], ['valid', 'С корректным контактом', PAL[1]],
+  ['consent', 'С согласием (доступная база)', PAL[0]], ['tg', 'В целевых группах', PAL[2]],
+  ['policy', 'Прошли контактную политику', PAL[3]], ['sent', 'Отправлено', PAL[4]],
+  ['delivered', 'Доставлено', PAL[5]], ['unutilized', 'Неутилизированная доступная база', PAL[6]],
+  ['rest', 'Остаток: не вошли ни в один сегмент', PAL[7]],
+];
+const COMBO = { 'sms+email+push': 'SMS + Email + Push', 'email+push': 'Email + Push', 'sms+email': 'SMS + Email', 'sms+push': 'SMS + Push', push: 'Только Push', email: 'Только Email', sms: 'Только SMS', no_consent: 'Нет согласия (контакт есть)', no_contact: 'Нет корректного контакта' };
+const KPI = [
+  ['total_base', 'Вся клиентская база', 'Уникальные клиенты на конец периода', 1],
+  ['available_base', 'Доступная база', 'Доступен хотя бы один канал для маркетинговых коммуникаций', 1],
+  ['tg_clients', 'Клиенты в целевых группах', 'Включены хотя бы в одну целевую группу запущенных кампаний', 1],
+  ['unutilized_base', 'Неутилизированная доступная база', 'Доступны и проходят контактную политику, но не получили ни одного сообщения', -1],
+  ['utilization_index', 'Индекс утилизации', 'Отправленные сообщения от максимума по контактной политике', 1],
+];
+const state = { step: null, vis: new Set(['total', 'consent', 'tg', 'delivered', 'unutilized']) };
+window.cbState = state;
+
+const P = () => dash.params().period || '4w';
+const CH = () => dash.params().channel || 'all';
+const ready = (box, ids) => {
+  const st = ids.map((i) => dash.data(i).status);
+  box.classList.toggle('dash-skeleton', st.some((s) => s === 'loading'));
+  if (st.every((s) => s === 'ok')) return true;
+  box.replaceChildren();
+  if (st.some((s) => s === 'error')) box.append(el('div', 'cb-err', 'Не удалось загрузить'));
+  return false;
+};
+const seg = (box, opts, cur, name) => {
+  box.replaceChildren(...opts.map(([v, label]) => {
+    const b = el('button', '', label); b.type = 'button'; b.setAttribute('aria-pressed', String(v === cur));
+    b.addEventListener('click', () => dash.setParams({ [name]: v })); return b;
+  }));
+};
+
+function drawHead() {
+  seg($('#cb-period'), PERIODS, P(), 'period');
+  seg($('#cb-channel'), CHANNELS, CH(), 'channel');
+  const rg = $('#cb-range'), tk = $('#cb-take');
+  const per = dash.data('periods');
+  rg.replaceChildren();
+  if (per.status === 'ok') {
+    const r = per.data.find((x) => x.period === P());
+    if (r) rg.append('Период: ', cite(el('span', '', dfm.format(day(r.start))), 'periods', 'start', { period: P() }), ' – ',
+      cite(el('span', '', dfm.format(day(r.end))), 'periods', 'end', { period: P() }), ' · сравнение с ',
+      cite(el('span', '', dfm.format(day(r.prev_start))), 'periods', 'prev_start', { period: P() }), ' – ',
+      cite(el('span', '', dfm.format(day(r.prev_end))), 'periods', 'prev_end', { period: P() }));
+  }
+  const f = dash.data('funnel');
+  if (f.status !== 'ok') { tk.textContent = '—'; return; }
+  const fr = f.data.filter((x) => x.period === P() && x.channel === CH() && (x.cohort || 'all') === 'all').sort((a, b) => a.step - b.step);
+  if (!fr.length) { tk.textContent = '—'; return; }
+  const w = (r, field, txt) => { const b = cite(el('b', '', txt), 'funnel', field, { period: P(), cohort: 'all', channel: CH(), step: r.step }); return b; };
+  const worst = fr.slice(1).reduce((a, b) => (+b.drop_abs > +a.drop_abs ? b : a));
+  tk.replaceChildren('Из ', w(fr[0], 'clients', big(fr[0].clients)), (CH() === 'all' ? ' клиентов для коммуникаций доступны ' : ' клиентов в канале ' + CHNAME[CH()] + ' доступны '), w(fr[2], 'clients', big(fr[2].clients)),
+    ' (', w(fr[2], 'conv_first', pct(fr[2].conv_first)), '). Больше всего клиентов теряется на шаге «' + stepName(worst.step_key, CH()) + '»: ',
+    w(worst, 'drop_abs', '−' + big(worst.drop_abs)), '.');
+}
+
+function drawKpi() {
+  const box = $('#cb-kpis');
+  if (!ready(box, ['kpi', 'intensity'])) return;
+  const rows = dash.data('kpi').data.filter((r) => r.period === P() && (r.channel || 'all') === CH());
+  const inten = dash.data('intensity').data.filter((r) => r.period === P());
+  box.replaceChildren(...KPI.map(([key, label, def, dir]) => {
+    const r = rows.find((x) => x.metric === key); const card = el('div', 'cb-card'); card.id = 'kpi-' + key;
+    card.append(el('div', 'cb-klabel', label));
+    if (!r) { card.append(el('div', 'cb-kval', '—')); return card; }
+    const isPct = r.unit === 'pct', where = { period: P(), channel: CH(), metric: key };
+    const v = cite(el('div', 'cb-kval', isPct ? pct(r.value) : big(r.value)), 'kpi', 'value', where);
+    if (!isPct) v.title = nf.format(+r.value);
+    if (key === 'available_base') v.style.color = 'var(--cb-teal)'; if (key === 'unutilized_base') v.style.color = 'var(--cb-coral)';
+    const dl = +r.delta_pct, good = dl * dir > 0;
+    const d = el('div', 'cb-kdelta ' + (dl === 0 ? 'cb-muted' : good ? 'cb-good' : 'cb-bad'));
+    d.append(dl > 0 ? '▲ ' : dl < 0 ? '▼ ' : '', cite(el('span', '', (dl > 0 ? '+' : dl < 0 ? '−' : '') + p1.format(Math.abs(dl)) + (isPct ? ' п.п.' : '%')), 'kpi', 'delta_pct', where), ' к пред. периоду');
+    card.append(v, d);
+    if (isPct) { const m = el('div', 'cb-meter'); const i = el('i'); i.style.width = Math.min(100, +r.value) + '%'; i.style.background = C0; m.append(i); card.append(m); }
+    if (key !== 'tg_clients') card.title = def;
+    if (key === 'tg_clients') {
+      card.classList.add('cb-haspop'); card.tabIndex = 0;
+      card.querySelector('.cb-klabel').append(' ⓘ');
+      const pop = el('div', 'cb-pop'); pop.append(el('div', 'cb-muted', 'Включены хотя бы в одну целевую группу запущенных кампаний. В среднем сообщений на клиента:'));
+      (CH() === 'all' ? ['sms', 'email', 'push', 'total'] : [CH()]).forEach((c) => {
+        const ir = inten.find((x) => x.channel === c); if (!ir) return;
+        const kv = el('div', 'cb-kv'); kv.append(el('span', '', c === 'total' ? 'Total' : CHNAME[c]), cite(el('span', '', d2.format(+ir.avg_per_tg_client)), 'intensity', 'avg_per_tg_client', { period: P(), channel: c }));
+        pop.append(kv);
+      });
+      card.append(pop);
+    }
+    return card;
+  }));
+}
+
+const comboName = (c) => CH() === 'all' ? (COMBO[c] || c) : c === 'no_consent' ? 'Нет согласия в ' + CHNAME[CH()] + ' (контакт есть)' : c === 'no_contact' ? 'Нет корректного контакта в ' + CHNAME[CH()] : (COMBO[c] || c);
+function drawCap() {
+  const box = $('#cb-cap');
+  if (!ready(box, ['capacity'])) return;
+  const all = dash.data('capacity').data.filter((r) => r.period === P() && (r.channel || 'all') === CH());
+  const rows = all.filter((r) => r.combo !== 'total').sort((a, b) => (b.channels > 0) - (a.channels > 0) || b.channels - a.channels || b.clients - a.clients);
+  const tot = all.find((r) => r.combo === 'total');
+  const max = d3.max(rows, (r) => +r.share_pct) || 1;
+  const w = (r) => ({ period: P(), channel: CH(), combo: r.combo });
+  const h = el('tr'); h.append(el('th', '', 'Каналы'));
+  rows.forEach((r) => h.append(el('th', r.channels == 0 ? 'cb-crit' : '', comboName(r.combo))));
+  h.append(el('th', 'cb-sep', 'Итого'));
+  const p = el('tr'); p.append(el('td', 'cb-muted', '% базы'));
+  rows.forEach((r) => { const td = el('td', 'cb-mcell'), bg = el('i'); bg.style.width = (100 * r.share_pct / max) + '%'; bg.style.background = r.channels == 0 ? CRIT : C0; td.append(bg, cite(el('span', '', pct(r.share_pct)), 'capacity', 'share_pct', w(r))); p.append(td); });
+  p.append(el('td', 'cb-sep'));
+  const n = el('tr'); n.append(el('td', 'cb-muted', 'Клиентов'));
+  rows.forEach((r) => { const td = el('td'); td.append(cite(el('span', '', nf.format(+r.clients)), 'capacity', 'clients', w(r))); n.append(td); });
+  const tt = el('td', 'cb-sep'); if (tot) tt.append(cite(el('b', '', nf.format(+tot.clients)), 'capacity', 'clients', w(tot))); n.append(tt);
+  box.replaceChildren(h, p, n);
+}
+
+const COH = () => state.cohort || 'all';
+const sgn = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + p1.format(Math.abs(v));
+const dcell = (r, where) => {
+  const first = +r.step === 1, v = first ? +r.delta_clients_pct : +r.delta_pp;
+  if (r.delta_pp == null) return el('span', 'cb-muted', '—');
+  const sp = cite(el('span', v > 0 ? 'cb-good' : v < 0 ? 'cb-bad' : 'cb-muted', sgn(v) + (first ? '%' : ' п.п.')), 'funnel', first ? 'delta_clients_pct' : 'delta_pp', where);
+  sp.title = first ? 'Изменение числа клиентов к предыдущему периоду' : 'Изменение доли от первого шага к предыдущему периоду: было ' + pct(r.prev_conv_first) + ', стало ' + pct(r.conv_first);
+  return sp;
+};
+const COHORTS = [['all', 'Все клиенты'], ['new', 'Новые за период'], ['existing', 'Существующие']];
+function drawCohort(allc) {
+  const box = $('#cb-cohort'), note = $('#cb-cohnote');
+  box.replaceChildren(...COHORTS.map(([v, l]) => { const b = el('button', '', l); b.type = 'button'; b.setAttribute('aria-pressed', String(v === COH())); b.addEventListener('click', () => { state.cohort = v; state.step = null; drawFunnel(); }); return b; }));
+  const g = (coh, step) => allc.find((r) => (r.cohort || 'all') === coh && r.channel === CH() && +r.step === step);
+  const n1 = g('new', 1), n3 = g('new', 3), e3 = g('existing', 3), n2 = g('new', 2);
+  if (!n1 || !n3 || !e3) { note.replaceChildren(); return; }
+  const w = (r, f, txt, coh) => cite(el('b', '', txt), 'funnel', f, { period: P(), cohort: coh, channel: CH(), step: r.step });
+  const dd = (r, coh) => { const v = +r.delta_pp; return cite(el('span', v > 0 ? 'cb-good' : v < 0 ? 'cb-bad' : 'cb-muted', sgn(v) + ' п.п.'), 'funnel', 'delta_pp', { period: P(), cohort: coh, channel: CH(), step: r.step }); };
+  note.replaceChildren('Доступны для коммуникаций: новые за период — ', w(n3, 'conv_first', pct(n3.conv_first), 'new'), ' (', dd(n3, 'new'), ' к пред. периоду), существующие — ',
+    w(e3, 'conv_first', pct(e3.conv_first), 'existing'), ' (', dd(e3, 'existing'), '). Новых клиентов: ', w(n1, 'clients', nf.format(+n1.clients), 'new'),
+    ', из них без корректного контакта ', w(n2, 'drop_abs', nf.format(+n2.drop_abs), 'new'), ', без согласия ', w(n3, 'drop_abs', nf.format(+n3.drop_abs), 'new'), '.');
+}
+function drawFunnel() {
+  const box = $('#cb-funnel'), mx = $('#cb-matrix');
+  document.querySelectorAll('.cb-lg-cur').forEach((e) => { e.style.background = C0; });
+  if (!ready(box, ['funnel'])) { drawSeg(null, []); mx.replaceChildren(); return; }
+  const allc = dash.data('funnel').data.filter((r) => r.period === P());
+  const all = allc.filter((r) => (r.cohort || 'all') === COH());
+  drawCohort(allc);
+  const rows = all.filter((r) => r.channel === CH()).sort((a, b) => a.step - b.step);
+  const worst = rows.slice(1).reduce((a, b) => (+b.drop_abs > +a.drop_abs ? b : a), rows[1] || {});
+  box.replaceChildren(...rows.map((r) => {
+    const where = { period: P(), cohort: COH(), channel: CH(), step: r.step };
+    const b = el('button', 'cb-frow'); b.type = 'button'; b.setAttribute('aria-pressed', String(state.step === r.step_key));
+    const name = el('span', 'cb-fname'); name.append(el('span', 'cb-fnum', String(r.step)), el('span', '', stepName(r.step_key, CH())));
+    if (r.step_key === 'consent') { b.classList.add('key'); name.append(el('span', 'cb-ftag', 'доступная база')); }
+    const bar = el('span', 'cb-fbar'), cur = el('i'), prev = el('i', 'prev');
+    cur.style.width = r.conv_first + '%'; cur.style.background = C0; prev.style.width = r.prev_conv_first + '%';
+    prev.title = 'Предыдущий период: ' + nf.format(+r.prev_clients); bar.append(cur, prev);
+    const stat = (label, node) => { const s = el('span', 'cb-fstat'); s.append(el('small', '', label), node); return s; };
+    const first = r.step === 1;
+    b.append(name, bar,
+      stat('Клиентов', cite(el('span', '', nf.format(+r.clients)), 'funnel', 'clients', where)),
+      stat('К пред. шагу', first ? el('span', 'cb-muted', '—') : cite(el('span', '', pct(r.conv_prev)), 'funnel', 'conv_prev', where)),
+      stat('К первому', first ? el('span', 'cb-muted', '—') : cite(el('span', '', pct(r.conv_first)), 'funnel', 'conv_first', where)),
+      stat('Потеря', first ? el('span', 'cb-muted', '—') : cite(el('span', r === worst ? 'cb-crit' : '', '−' + nf.format(+r.drop_abs)), 'funnel', 'drop_abs', where)),
+      stat('К пред. периоду', dcell(r, where)));
+    b.addEventListener('click', () => { state.step = state.step === r.step_key ? null : r.step_key; drawFunnel(); });
+    return b;
+  }));
+  drawSeg(rows.find((r) => r.step_key === state.step), rows);
+  // matrix
+  const MCH = CH() === 'all' ? CHANNELS : CHANNELS.filter(([c]) => c === CH());
+  const head = el('tr'); head.append(el('th', '', 'Шаг'));
+  MCH.forEach(([c, label]) => { const th = el('th'), b = el('button', '', label); b.type = 'button'; b.addEventListener('click', () => dash.setParams({ channel: c })); if (c === CH()) th.style.color = 'var(--color-fg)'; th.append(b); head.append(th); });
+  const body = Object.keys(STEPS).slice(1).map((k, i) => {
+    const tr = el('tr'); tr.append(el('td', 'cb-step', (i + 2) + '. ' + stepName(k, 'all')));
+    MCH.forEach(([c]) => { const ci = CHANNELS.findIndex(([x]) => x === c);
+      const r = all.find((x) => x.channel === c && x.step_key === k), td = el('td', 'cb-mcell');
+      if (r) { const bg = el('i'); bg.style.width = r.conv_first + '%'; bg.style.background = PAL[ci]; td.append(bg, cite(el('span', '', pct(r.conv_first)), 'funnel', 'conv_first', { period: P(), cohort: COH(), channel: c, step: r.step })); td.title = nf.format(+r.clients) + ' клиентов'; }
+      tr.append(td);
+    });
+    return tr;
+  });
+  mx.replaceChildren(head, ...body);
+}
+
+const SGCOND = {
+  valid: (ch) => ch === 'all' ? '(Корректный телефон = Да) ИЛИ (Корректный email = Да) ИЛИ (Push-токен активен = Да)' : { sms: 'Корректный телефон = Да', email: 'Корректный email = Да', push: 'Push-токен активен = Да' }[ch],
+  consent: (ch) => ch === 'all' ? 'Согласие на маркетинговые коммуникации = Да в канале с корректным контактом' : 'Согласие на маркетинговые коммуникации в ' + CHNAME[ch] + ' = Да',
+  tg: () => 'Входит в целевую группу запущенной кампании за период = Да',
+  policy: () => 'Проверка контактной политики = Пройдена',
+  sent: () => 'Отправлено сообщений за период ≥ 1',
+  delivered: () => 'Доставлено сообщений за период ≥ 1',
+};
+const PEOPLE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3zm0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5C15 14.2 10.3 13 8 13zm8 0c-.3 0-.6 0-1 .1a4.2 4.2 0 0 1 2 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5z"/></svg>';
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.step) { state.step = null; drawFunnel(); } });
+const cbView = { top: null, h: 0 };
+const placeDrawer = () => {
+  const p = $('#segmenter'), root = document.querySelector('.cb'); if (!p || p.hidden || !root) return;
+  if (cbView.top == null) { p.style.top = $('#funnel').offsetTop + 'px'; return; }
+  const max = root.offsetHeight, h = Math.max(288, Math.min(cbView.h, max));
+  const top = Math.min(Math.max(0, cbView.top - root.getBoundingClientRect().top), Math.max(0, max - h));
+  p.style.top = top + 'px'; p.style.height = h + 'px';
+};
+try {
+  new IntersectionObserver(([e]) => { cbView.top = e.intersectionRect.top; cbView.h = e.intersectionRect.height; placeDrawer(); },
+    { threshold: Array.from({ length: 401 }, (_, i) => i / 400) }).observe(document.querySelector('.cb'));
+} catch (err) { /* без наблюдателя панель встаёт у воронки */ }
+window.addEventListener('scroll', placeDrawer, { passive: true });
+function drawSeg(sel, rows) {
+  const panel = $('#segmenter'), box = $('#cb-sg');
+  panel.hidden = !sel;
+  if (!sel) { box.replaceChildren(); return; }
+  placeDrawer();
+  const where = (r) => ({ period: P(), cohort: COH(), channel: CH(), step: r.step });
+  const count = (r, cls) => { const p = el('span', 'sg-pill' + (cls ? ' ' + cls : '')); p.append(cite(el('span', '', nf.format(+r.clients)), 'funnel', 'clients', where(r))); return p; };
+  const top = el('div', 'sg-top'), ttl = el('div', 'sg-title'), x = el('button', 'sg-x', '×');
+  x.type = 'button'; x.setAttribute('aria-label', 'Закрыть сегментатор');
+  x.addEventListener('click', () => { state.step = null; drawFunnel(); });
+  const total = el('span', 'sg-pill'); total.insertAdjacentHTML('afterbegin', PEOPLE); total.append(cite(el('span', '', nf.format(+sel.clients)), 'funnel', 'clients', where(sel)));
+  ttl.append(el('h3', '', 'Состав сегмента'), total); top.append(ttl, x);
+  const info = el('p', 'sg-info', 'Предпросмотр: в рабочей версии клик по шагу откроет сегментатор в новом окне браузера с уже собранным сегментом. Шаг ' + sel.step + ' «' + stepName(sel.step_key, CH()) + '» · ' + CHNAME[CH()] + '. Названия полей условные.');
+  const flow = el('div', 'sg-flow'); flow.style.setProperty('--sg-accent', PAL[0]);
+  const root = el('div', 'sg-root'), rb = el('div', 'sg-box sg-radios');
+  const radio = (t, on) => { const r = el('span', 'sg-radio' + (on ? ' on' : '')); r.append(el('i'), t); return r; };
+  rb.append(radio('Клиенты', true), radio('Договоры', false));
+  const chk = el('span', 'sg-check'); chk.append(el('i'), 'Исключить материализованных клиентов');
+  root.append(rb, chk);
+  const rc = el('div', 'sg-rootcount'); rc.append(count(rows[0], 'out'));
+  flow.append(root, rc);
+  rows.filter((r) => r.step > 1 && r.step <= sel.step).forEach((r, i) => {
+    if (i) { const aw = el('div', 'sg-and-wrap'); aw.append(el('span', 'sg-and', 'И')); flow.append(aw); }
+    const st = el('div', 'sg-step'), rail = el('div', 'sg-rail'), cond = el('div', 'sg-cond' + (r === sel ? ' sel' : ''));
+    rail.append(count(r));
+    const b = el('div', 'sg-box', SGCOND[r.step_key](CH())); b.title = 'Шаг ' + r.step + ': ' + stepName(r.step_key, CH());
+    cond.append(b); st.append(rail, cond); flow.append(st);
+  });
+  const foot = el('div', 'sg-foot'), open = el('button', 'sg-open', 'Открыть в сегментаторе ↗');
+  open.type = 'button'; open.disabled = true;
+  foot.append(open, el('span', 'cb-note', 'Слева — сколько клиентов остаётся после каждого условия.'));
+  box.replaceChildren(top, info, flow, foot);
+}
+
+function drawHdet(rows, ch) {
+  const box = $('#cb-hdet');
+  const sel = rows.find((r) => +r.bucket_order === state.bucket);
+  { const bl = $('#cb-bullets'); bl.hidden = !!sel; if (bl.nextElementSibling) bl.nextElementSibling.hidden = !!sel; }
+  if (!sel) { box.replaceChildren(); return; }
+  const bw = { period: P(), channel: ch, bucket_order: sel.bucket_order };
+  const head = el('div', 'cb-chead'), t = el('h3');
+  t.append(sel.bucket + ' коммуникаций за период · ', cite(el('span', '', nf.format(+sel.clients)), 'msg_distribution', 'clients', bw), ' клиентов');
+  const x = el('button', 'sg-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Закрыть'); x.addEventListener('click', () => { state.bucket = null; drawStructure(); });
+  head.append(t, x);
+  const bc = dash.data('bucket_channels');
+  if (+sel.bucket_order === 0) { box.replaceChildren(head, el('p', 'cb-note', 'Этим клиентам за период не отправили ни одной коммуникации.')); return; }
+  if (bc.status !== 'ok') { box.replaceChildren(head, el('p', 'cb-note', '—')); return; }
+  const list = bc.data.filter((r) => r.period === P() && r.channel === ch && +r.bucket_order === +sel.bucket_order);
+  const tbl = el('table', 'cb-hdtab'), hr = el('tr');
+  hr.append(el('th', '', 'Канал'), el('th', '', 'Доля коммуникаций'), el('th', '', 'Коммуникаций'), el('th', '', 'Клиентов получили'));
+  tbl.append(hr, ...['sms', 'email', 'push'].map((m, mi) => {
+    const r = list.find((z) => z.msg_channel === m), tr = el('tr'); if (!r) return tr;
+    const w = { period: P(), channel: ch, bucket_order: sel.bucket_order, msg_channel: m };
+    const pc = el('td', 'cb-mcell'), bg = el('i'); bg.style.width = r.messages_share_pct + '%'; bg.style.background = C0; bg.style.opacity = '.35';
+    pc.append(bg, cite(el('span', '', pct(r.messages_share_pct)), 'bucket_channels', 'messages_share_pct', w));
+    const td = (f) => { const c = el('td'); c.append(cite(el('span', '', nf.format(+r[f])), 'bucket_channels', f, w)); return c; };
+    tr.append(el('td', '', CHNAME[m]), pc, td('messages'), td('clients'));
+    return tr;
+  }));
+  box.replaceChildren(head, tbl);
+}
+
+function drawStructure() {
+  const hb = $('#cb-hist'), bb = $('#cb-bullets'), ch = CH() === 'all' ? 'total' : CH();
+  $('#cb-hist-note').textContent = 'Распределение коммуникаций на клиента';
+  if (ready(hb, ['msg_distribution'])) {
+    const rows = dash.data('msg_distribution').data.filter((r) => r.period === P() && r.channel === ch).sort((a, b) => a.bucket_order - b.bucket_order);
+    const max = d3.max(rows, (r) => +r.share_pct) || 1;
+    hb.replaceChildren(...rows.map((r) => {
+      const col = el('div', 'cb-hcol'), bar = el('i');
+      bar.style.height = (100 * r.share_pct / max) + '%'; bar.style.background = r.bucket_order === 0 ? MUTED : C0; bar.style.flex = '0 1 ' + (100 * r.share_pct / max) + '%';
+      col.title = nf.format(+r.clients) + ' клиентов';
+      const on = state.bucket === +r.bucket_order;
+      col.tabIndex = 0; col.setAttribute('role', 'button'); col.setAttribute('aria-pressed', String(on));
+      if (state.bucket != null && !on) col.classList.add('dim');
+      const pick = () => { state.bucket = on ? null : +r.bucket_order; drawStructure(); };
+      col.addEventListener('click', pick); col.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+      col.append(cite(el('span', '', pct(r.share_pct)), 'msg_distribution', 'share_pct', { period: P(), channel: ch, bucket_order: r.bucket_order }), bar, el('em', '', r.bucket));
+      return col;
+    }));
+    drawHdet(rows, ch);
+  } else $('#cb-hdet').replaceChildren();
+  if (ready(bb, ['intensity'])) {
+    const rows = dash.data('intensity').data.filter((r) => r.period === P());
+    bb.replaceChildren(...(CH() === 'all' ? ['total', 'sms', 'email', 'push'] : [CH()]).map((c) => {
+      const r = rows.find((x) => x.channel === c); const w = el('div', 'cb-bullet'); if (!r) return w;
+      const where = { period: P(), channel: c }, top = el('div', 'cb-kv'), left = el('span');
+      left.append(el('b', '', c === 'total' ? 'Все каналы' : CHNAME[c]), ' · ', cite(el('span', '', d2.format(+r.avg_per_available)), 'intensity', 'avg_per_available', where), ' из ', cite(el('span', '', nf.format(+r.max_per_client)), 'intensity', 'max_per_client', where), c === ch ? ' на клиента' : '');
+      const ut = el('span'); if (c === ch) ut.append(el('span', 'cb-muted', 'от допустимого объёма '));  ut.append(cite(el('span', '', pct(r.utilization_pct)), 'intensity', 'utilization_pct', where)); ut.title = 'Индекс утилизации: доля фактически отправленных коммуникаций от максимально допустимого объёма по правилам контактной политики';
+      top.append(left, ut);
+      const tr = el('div', 'cb-btrack'), bar = el('i'), tick = el('u');
+      bar.style.width = Math.min(100, +r.utilization_pct) + '%'; bar.style.background = C0; if (c !== ch) bar.style.opacity = '.55';
+      tick.style.left = Math.min(100, 100 * r.avg_per_reached / r.max_per_client) + '%'; { const pos = parseFloat(tick.style.left); tick.tabIndex = 0; tick.setAttribute('aria-label', 'Пояснение к засечке'); tick.classList.toggle('r', pos > 60); tick.classList.toggle('l', pos < 25);
+        tick.append(cite(el('span', 'cb-tickv', d2.format(+r.avg_per_reached)), 'intensity', 'avg_per_reached', where));
+        tick.dataset.tip = 'Засечка — в среднем ' + d2.format(+r.avg_per_reached) + ' сообщений на клиента, который получил хотя бы одно сообщение за период. Чем дальше засечка от полосы, тем сильнее коммуникации сосредоточены на части базы.'; }
+      tr.append(bar, tick);
+      w.append(top, tr); return w;
+    }));
+  }
+}
+
+function drawDyn() {
+  const box = $('#cb-dyn'), chips = $('#cb-chips');
+  chips.replaceChildren(...SERIES.map(([k, label, color]) => {
+    const b = el('button', 'cb-chip'); b.type = 'button'; b.setAttribute('aria-pressed', String(state.vis.has(k)));
+    const sw = el('span', 'cb-sw'); sw.style.background = color; b.append(sw, label);
+    b.addEventListener('click', () => { state.vis.has(k) ? state.vis.delete(k) : state.vis.add(k); drawDyn(); }); return b;
+  }));
+  if (!ready(box, ['dynamics'])) return;
+  box.replaceChildren();
+  const W = box.clientWidth, H = 230; if (!W) return;
+  const data = dash.data('dynamics').data.filter((d) => (d.channel || 'all') === CH()), by = d3.group(data, (d) => d.series);
+  const vis = SERIES.filter(([k]) => state.vis.has(k) && by.has(k));
+  if (!vis.length) { box.append(el('div', 'cb-err cb-muted', 'Выберите хотя бы одну область')); box.firstChild.className = 'cb-note'; return; }
+  const weeks = [...new Set(data.map((d) => String(d.week).slice(0, 10)))].sort(), dates = weeks.map(day);
+  const val = new Map(vis.map(([k]) => [k, new Map(by.get(k).map((d) => [String(d.week).slice(0, 10), +d.clients]))]));
+  const ymax = d3.max(vis, ([k]) => d3.max([...val.get(k).values()])) || 1;
+  const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('height', H).attr('role', 'img').attr('aria-label', 'Динамика клиентской базы по неделям');
+  const y = d3.scaleLinear([0, ymax], [H - 28, 12]).nice(5), ticks = y.ticks(5);
+  const gy = svg.append('g');
+  const labels = gy.selectAll('text').data(ticks).join('text').attr('y', (d) => y(d)).attr('dy', '.32em').attr('text-anchor', 'end').text((d) => cf.format(d));
+  const ml = Math.ceil(d3.max(labels.nodes(), (n) => n.getComputedTextLength()) || 30) + 8, mr = 12;
+  labels.attr('x', ml - 6);
+  const x = d3.scaleUtc([dates[0], dates[dates.length - 1]], [ml, W - mr]);
+  gy.selectAll('line').data(ticks).join('line').attr('x1', ml).attr('x2', W - mr).attr('y1', (d) => y(d)).attr('y2', (d) => y(d)).attr('stroke', (d) => (d === 0 ? 'var(--cds-chart-axis)' : 'var(--cds-chart-grid)')).attr('stroke-width', 1);
+  const per = dash.data('periods');
+  if (per.status === 'ok') {
+    const r = per.data.find((p) => p.period === P());
+    if (r) { const x0 = Math.max(ml, x(day(r.start))); svg.insert('rect', ':first-child').attr('x', x0).attr('y', 12).attr('width', Math.max(0, W - mr - x0)).attr('height', H - 40).attr('fill', 'var(--cds-chart-grid)').attr('opacity', .6);
+      state.mark = { x0, weeks: r.weeks }; } else state.mark = null;
+  }
+  const stepN = Math.max(1, Math.ceil(dates.length / Math.max(2, Math.floor((W - ml) / 64))));
+  svg.append('g').selectAll('text').data(dates.filter((d, i) => (dates.length - 1 - i) % stepN === 0)).join('text').attr('x', (d) => x(d)).attr('y', H - 8).attr('text-anchor', (d) => (d === dates[dates.length - 1] ? 'end' : 'middle')).text((d) => dfm.format(d));
+  const line = d3.line().x((d, i) => x(dates[i])).y((d) => y(d));
+  const defs = svg.append('defs'), base = y(0);
+  const area = d3.area().x((d, i) => x(dates[i])).y0(base).y1((d) => y(d));
+  vis.forEach(([k, , color]) => {
+    const g = defs.append('linearGradient').attr('id', 'cbg-' + k).attr('x1', 0).attr('x2', 0).attr('y1', 0).attr('y2', 1);
+    [[0, .2], [.6, .06], [1, 0]].forEach(([o, op]) => g.append('stop').attr('offset', o).style('stop-color', color).attr('stop-opacity', op));
+    svg.append('path').attr('fill', 'url(#cbg-' + k + ')').attr('d', area(weeks.map((w) => val.get(k).get(w) ?? 0)));
+  });
+  vis.forEach(([k, , color]) => {
+    svg.append('path').attr('fill', 'none').attr('stroke-width', 1.75).attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round').style('stroke', color).attr('d', line(weeks.map((w) => val.get(k).get(w) ?? 0)));
+  });
+  if (state.mark) {
+    const mk = svg.append('g').attr('pointer-events', 'none');
+    mk.append('line').attr('x1', state.mark.x0).attr('x2', state.mark.x0).attr('y1', 12).attr('y2', H - 28).style('stroke', 'var(--cb-teal)').attr('stroke-width', 1.5);
+    mk.append('circle').attr('cx', state.mark.x0).attr('cy', H - 28).attr('r', 9).style('fill', 'var(--cb-teal)');
+    mk.append('text').attr('x', state.mark.x0).attr('y', H - 28).attr('dy', '.35em').attr('text-anchor', 'middle').attr('class', 'cb-mktext').text(state.mark.weeks);
+  }
+  const rule = svg.append('line').attr('y1', 12).attr('y2', H - 28).attr('stroke', 'var(--cds-chart-axis)').attr('stroke-width', 1).attr('visibility', 'hidden');
+  const dots = svg.append('g');
+  const tip = el('div', 'cb-tip'); tip.hidden = true; box.append(tip);
+  const show = (ev) => {
+    const [px] = d3.pointer(ev, svg.node()), sx = px * (W / (svg.node().getBoundingClientRect().width || W));
+    const i = d3.minIndex(dates, (d) => Math.abs(x(d) - sx)), xi = x(dates[i]), wk = weeks[i];
+    rule.attr('x1', xi).attr('x2', xi).attr('visibility', 'visible');
+    dots.selectAll('circle').data(vis).join('circle').attr('r', 3.5).attr('cx', xi).attr('cy', ([k]) => y(val.get(k).get(wk) ?? 0)).style('fill', ([, , c]) => c).attr('stroke', 'var(--color-panel)').attr('stroke-width', 1.5);
+    const end = new Date(+dates[i] + 6 * 864e5);
+    tip.replaceChildren(el('div', 'cb-muted', 'Неделя ' + dfm.format(dates[i]) + ' – ' + dfm.format(end)), ...vis.slice().sort((a, b) => (val.get(b[0]).get(wk) ?? 0) - (val.get(a[0]).get(wk) ?? 0)).map(([k, label, color]) => {
+      const kv = el('div', 'cb-kv'), l = el('span'), sw = el('span', 'cb-sw'); sw.style.background = color; l.append(sw, label);
+      kv.append(l, el('span', '', nf.format(val.get(k).get(wk) ?? 0))); return kv;
+    }));
+    tip.hidden = false;
+    const tw = tip.offsetWidth, bw = box.clientWidth, cx = xi * (bw / W);
+    tip.style.left = Math.max(0, Math.min(bw - tw, cx > bw / 2 ? cx - tw - 12 : cx + 12)) + 'px';
+  };
+  svg.append('rect').attr('x', ml).attr('y', 0).attr('width', W - ml - mr).attr('height', H).attr('fill', 'transparent')
+    .on('pointermove', show).on('pointerdown', show).on('pointerleave', () => { tip.hidden = true; rule.attr('visibility', 'hidden'); dots.selectAll('circle').remove(); });
+}
+
+const TIP = { available: '% от клиентов с корректным контактом', policy_filtered: '% от включённых в целевые группы', sent: '% от доступных', delivered: '% от отправленных', unsubscribed: '% от доступных на начало периода', deleted: '% от базы канала на начало периода' };
+function drawTable() {
+  const t = $('#cb-table');
+  if (!ready(t, ['channels'])) return;
+  const cols = [['clients', 'Кол-во клиентов'], ['available', 'Доступно к отправке', 'available_pct'], ['policy_filtered', 'Отсеяно политикой', 'policy_filtered_pct'], ['sent', 'Отправлено', 'sent_pct'], ['delivered', 'Доставлено', 'delivered_pct'], ['unsubscribed', 'Отписки', 'unsubscribed_pct'], ['deleted', 'Удаления', 'deleted_pct']];
+  const rows = dash.data('channels').data.filter((r) => r.period === P());
+  const head = el('tr'); head.append(el('th', '', 'Канал'), ...cols.map(([f, l]) => { const th = el('th', '', l); if (TIP[f]) th.title = TIP[f]; return th; }));
+  t.replaceChildren(head, ...(CH() === 'all' ? ['sms', 'email', 'push', 'total'] : [CH()]).map((c) => {
+    const r = rows.find((x) => x.channel === c), tr = el('tr', c === 'total' ? 'cb-total' : ''); tr.append(el('td', '', c === 'total' ? 'Total' : CHNAME[c]));
+    cols.forEach(([f, , p]) => {
+      const td = el('td'); if (r) { const where = { period: P(), channel: c }; td.append(cite(el('span', '', nf.format(+r[f])), 'channels', f, where)); if (p) td.append(cite(el('span', 'cb-pct', pct(r[p])), 'channels', p, where)); }
+      tr.append(td);
+    });
+    return tr;
+  }));
+}
+
+function drawRefs() {
+  const b = $('#cb-built'), d = dash.data('refs');
+  if (d.status !== 'ok') { b.textContent = '—'; return; }
+  const rows = d.data;
+  b.replaceChildren('Источники: ', cite(el('span', '', rows.map((r) => r.source).join(', ')), 'refs'), ' · данные на ',
+    rows[0] ? cite(el('span', '', dfy.format(day(rows[0].snapshot))), 'refs', 'snapshot', { source: rows[0].source }) : '—', ' · демо-данные, сгенерированы для прототипа');
+}
+
+const INFO = {
+  capacity: 'Как считается: каждый клиент базы попадает ровно в одну колонку — по набору каналов, где у него есть и корректный контакт, и согласие. % — от всей базы на конец периода.\nЧто значит: в каких каналах база доступна для коммуникаций, сколько клиентов недоступны и почему.',
+  funnel: 'Как считается: каждый шаг — клиенты, прошедшие все предыдущие условия. «К пред. шагу» и «К первому» — доля от предыдущего и от первого шага, «Потеря» — сколько клиентов выбыло на шаге, «К пред. периоду» — изменение доли от первого шага в процентных пунктах.\nЧто значит: где теряется база на пути от всех клиентов до доставленной коммуникации.',
+  'funnel-channels': 'Как считается: та же воронка отдельно по каждому каналу, в ячейке — доля от всей базы. «Все каналы» — клиент засчитывается, если условие выполнено хотя бы в одном канале.\nЧто значит: какой канал сильнее теряет клиентов и на каком шаге.',
+  dynamics: 'Как считается: число клиентов в каждой области на конец каждой недели; отправки и доставки — за неделю. Области вложены друг в друга, поэтому линии не складываются.\nЧто значит: как меняются размер базы, её доступность и охват коммуникациями во времени.',
+  structure: 'Как считается: доступные клиенты разбиты по числу коммуникаций, полученных за период. Полосы — среднее число коммуникаций на доступного клиента и доля от допустимого объёма по контактной политике; засечка — среднее у получивших хотя бы одну.\nЧто значит: насколько интенсивно и равномерно идут коммуникации. Клик по столбцу показывает, в каких каналах они были.',
+  details: 'Как считается: показатели по каждому каналу за период; Total — уникальные клиенты по всем каналам. База процента — в подсказке к заголовку колонки.\nЧто значит: структура базы и коммуникаций по каналам в цифрах.',
+};
+Object.entries(INFO).forEach(([id, tip]) => {
+  const card = document.getElementById(id), h = card && card.querySelector('h3'); if (!h) return;
+  const wrap = el('div', 'cb-ttlrow'), i = el('span', 'cb-info', 'i');
+  i.tabIndex = 0; i.setAttribute('role', 'note'); i.setAttribute('aria-label', tip); i.dataset.tip = tip;
+  h.replaceWith(wrap); wrap.append(h, i);
+});
+
+dash.onData(() => { drawHead(); drawKpi(); drawCap(); drawFunnel(); drawStructure(); drawDyn(); drawTable(); drawRefs(); });
+</script>
+
+</div>
+</body>
+</html>
