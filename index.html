@@ -314,6 +314,7 @@ body{background:var(--color-bg);color:var(--color-fg);font-family:var(--font-ant
 .cb-info:hover,.cb-info:focus{border-color:var(--cb-teal);color:var(--cb-teal)}
 .cb-info:hover::after,.cb-info:focus::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:-10px;z-index:60;width:max-content;max-width:min(22rem,80vw);white-space:pre-line;text-align:left;font-weight:400;font-size:var(--cds-font-size-caption);line-height:1.45;color:var(--color-fg);background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-sm)}
 #details .cb-info:hover::after,#details .cb-info:focus::after,#funnel-channels .cb-info:hover::after,#funnel-channels .cb-info:focus::after{left:auto;right:-10px}
+.cb .cb-head{position:sticky;top:0;z-index:30;background:var(--color-bg);padding-block:var(--cds-pad-sm);margin-block:calc(-1 * var(--cds-pad-sm));box-shadow:0 1px 0 var(--color-border-line)}
 @container (max-width:900px){.cb-c8,.cb-c7,.cb-c5,.cb-c4{grid-column:1/-1}}
 </style>
 
@@ -327,8 +328,8 @@ body{background:var(--color-bg);color:var(--color-fg);font-family:var(--font-ant
     <div class="cb-fgroup"><span class="cb-flabel">Канал</span><div class="cb-seg" id="cb-channel" role="group" aria-label="Канал"></div></div>
    </div>
   </div>
-  <p class="cb-take"><span id="cb-take">—</span> <span id="cb-range"></span></p>
  </header>
+ <p class="cb-take"><span id="cb-take">—</span> <span id="cb-range"></span></p>
 
  <div class="cb-kpis" id="cb-kpis"></div>
 
