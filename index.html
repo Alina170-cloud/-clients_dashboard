@@ -717,7 +717,7 @@ function drawStructure() {
       const r = rows.find((x) => x.channel === c); const w = el('div', 'cb-bullet'); if (!r) return w;
       const where = { period: P(), channel: c }, top = el('div', 'cb-kv'), left = el('span');
       left.append(el('b', '', c === 'total' ? 'Все каналы' : CHNAME[c]), ' · ', cite(el('span', '', d2.format(+r.avg_per_available)), 'intensity', 'avg_per_available', where), ' из ', cite(el('span', '', nf.format(+r.max_per_client)), 'intensity', 'max_per_client', where), c === ch ? ' на клиента' : '');
-      const ut = el('span'); if (c === ch) ut.append(el('span', 'cb-muted', 'от допустимого объёма '));  ut.append(cite(el('span', '', pct(r.utilization_pct)), 'intensity', 'utilization_pct', where)); ut.title = 'Индекс утилизации: доля фактически отправленных коммуникаций от максимально допустимого объёма по правилам контактной политики';
+      const ut = el('span'); if (c === ch) ut.append(el('span', 'cb-muted', 'допустимый объём '));  ut.append(cite(el('span', '', pct(r.utilization_pct)), 'intensity', 'utilization_pct', where)); ut.title = 'Индекс утилизации: доля фактически отправленных коммуникаций от максимально допустимого объёма по правилам контактной политики';
       top.append(left, ut);
       const tr = el('div', 'cb-btrack'), bar = el('i'), tick = el('u');
       bar.style.width = Math.min(100, +r.utilization_pct) + '%'; bar.style.background = C0; if (c !== ch) bar.style.opacity = '.55';
