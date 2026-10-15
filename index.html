@@ -322,6 +322,7 @@ window.hypothesisConfig = function () {
 .cb-info:hover::after,.cb-info:focus::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:-10px;z-index:60;width:max-content;max-width:min(22rem,80vw);white-space:pre-line;text-align:left;font-weight:400;font-size:var(--cds-font-size-caption);line-height:1.45;color:var(--color-fg);background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-sm)}
 #details .cb-info:hover::after,#details .cb-info:focus::after,#funnel-channels .cb-info:hover::after,#funnel-channels .cb-info:focus::after{left:auto;right:-10px}
 .cb .cb-head{position:sticky;top:0;z-index:30;background:var(--color-bg);padding-block:var(--cds-pad-sm);margin-block:calc(-1 * var(--cds-pad-sm));box-shadow:0 1px 0 var(--color-border-line)}
+.cb-haxis{text-align:center;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);border-top:1px solid var(--cds-chart-axis);padding-top:4px;margin-top:-2px}
 @container (max-width:900px){.cb-c8,.cb-c7,.cb-c5,.cb-c4{grid-column:1/-1}}
 </style>
 
@@ -371,6 +372,7 @@ window.hypothesisConfig = function () {
   <div class="cb-card cb-c5" id="structure">
    <h3 id="cb-hist-note">Распределение коммуникаций на клиента</h3>
    <div class="cb-hist" id="cb-hist"></div>
+   <div class="cb-haxis">Коммуникации</div>
    <div class="cb-hdet" id="cb-hdet"></div>
    <div class="cb-bullets" id="cb-bullets"></div>
    <div class="cb-chead"><span class="cb-note"><i style="display:inline-block;width:2px;height:.95em;background:var(--color-fg);vertical-align:-.12em;margin-right:.35em" aria-label="Засечка"></i>— среднее количество коммуникаций у клиентов, получивших минимум одну</span></div>
