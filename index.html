@@ -58,13 +58,6 @@ body{background:var(--color-bg);color:var(--color-fg);font-family:var(--font-ant
   let w=0; window.addEventListener('resize',()=>{if(innerWidth!==w){w=innerWidth;run();}});
 })();
 </script>
-<!-- Hypothesis: comments and annotations from colleagues (sidebar on the right) -->
-<script>
-window.hypothesisConfig = function () {
-  return { openSidebar: false, showHighlights: 'always', theme: 'classic' };
-};
-</script>
-<script src="https://hypothes.is/embed.js" async></script>
 </head>
 <body>
 <div id="dash-root">
